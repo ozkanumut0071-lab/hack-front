@@ -1,0 +1,11 @@
+{
+    "buildCommand": "cd Bilinciler && npm install && npm run build",
+    "outputDirectory": "Bilinciler/dist",
+    "framework": "vite",
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
