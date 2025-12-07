@@ -24,9 +24,10 @@ function HistoryPage({ walletAddress }) {
 
         try {
             // Query transaction blocks for the user's address
+            // Note: Querying all transactions and filtering client-side for simplicity
             const response = await suiClient.queryTransactionBlocks({
                 filter: {
-                    FromOrTo: walletAddress,
+                    FromAddress: walletAddress,
                 },
                 options: {
                     showInput: true,
