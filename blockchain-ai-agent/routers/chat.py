@@ -121,19 +121,31 @@ async def chat_endpoint(request: ChatRequest):
                     detail="User address required for stake info query"
                 )
 
+            # Get StakePool ID
+            stake_pool_id = sui_service.get_stake_pool_id()
+            if not stake_pool_id:
+                logger.warning("StakePool not configured")
+                return ChatResponse(
+                    intent=intent,
+                    dry_run=None,
+                    ready_to_execute=False,
+                    message="Staking pool not configured. Please set STAKE_POOL_OBJECT_ID in the backend environment."
+                )
+
             token_type = TokenType(intent.parsed_data.get("token", "SUI"))
             logger.info(f"Fetching {token_type.value} stake info for {request.user_address}")
-            stake_info = await sui_service.get_user_stake(
+            
+            stake_info = sui_service.get_user_stake(
                 user_address=request.user_address,
-                token_type=token_type
+                stake_pool_id=stake_pool_id
             )
-            logger.info(f"Stake info retrieved: {stake_info.staked_amount_formatted} {token_type.value}")
+            logger.info(f"Stake info retrieved: {stake_info}")
 
             return ChatResponse(
                 intent=intent,
                 dry_run=None,
                 ready_to_execute=False,
-                message=f"You have staked {stake_info.staked_amount_formatted} {stake_info.token.value} in the staking pool."
+                message=f"Staking Pool Status:\n• Total staked in pool: {stake_info.get('total_staked_formatted', '0')} SUI\n• Your staked: {stake_info.get('user_staked_formatted', '0')} SUI"
             )
 
         elif intent.action == IntentAction.STAKE_TOKEN:
@@ -144,6 +156,17 @@ async def chat_endpoint(request: ChatRequest):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="User address required for staking"
+                )
+
+            # Get StakePool ID
+            stake_pool_id = sui_service.get_stake_pool_id()
+            if not stake_pool_id:
+                logger.warning("StakePool not configured")
+                return ChatResponse(
+                    intent=intent,
+                    dry_run=None,
+                    ready_to_execute=False,
+                    message="Staking pool not configured. Please set STAKE_POOL_OBJECT_ID in the backend environment."
                 )
 
             parsed_data = intent.parsed_data
@@ -160,34 +183,29 @@ async def chat_endpoint(request: ChatRequest):
             decimals = 9  # SUI has 9 decimals
             amount_in_smallest = str(int(float(amount_str) * (10 ** decimals)))
 
-            # Estimate gas
-            estimated_gas = await sui_service.estimate_gas_fee(b"")
-
-            # Generate dry-run summary
-            dry_run = await openai_service.generate_dry_run_summary(
-                action="stake_token",
-                parsed_data={
-                    "recipient": "Staking Pool",
-                    "amount": amount_in_smallest,
-                    "token": token_type.value
-                },
-                sender_balance=balance_info.balance,
-                estimated_gas=estimated_gas
+            # Build stake transaction metadata
+            tx_result = sui_service.build_stake_tx(
+                sender=request.user_address,
+                amount=amount_in_smallest,
+                stake_pool_id=stake_pool_id
             )
 
-            # Build transaction_data for execute endpoint
+            # Build transaction_data for frontend
             transaction_data = {
-                "action": "stake_token",
-                "amount": amount_in_smallest,
+                "action": "stake",
+                "transaction_type": tx_result.get("transaction_type"),
+                "target": tx_result.get("target"),
+                "stake_pool_id": stake_pool_id,
+                "amount": int(amount_in_smallest),
                 "token": token_type.value
             }
             logger.info(f"Stake transaction data prepared: {transaction_data}")
 
             return ChatResponse(
                 intent=intent,
-                dry_run=dry_run,
-                ready_to_execute=True if dry_run.risk_level != "high" else False,
-                message=f"Ready to stake {amount_str} {token_type.value}. Estimated gas: ~{dry_run.estimated_gas_fee} SUI.",
+                dry_run=None,
+                ready_to_execute=True,
+                message=f"Ready to stake {amount_str} SUI. Balance: {balance_info.balance_formatted} SUI. Sign with your wallet to confirm.",
                 transaction_data=transaction_data
             )
 
@@ -201,14 +219,19 @@ async def chat_endpoint(request: ChatRequest):
                     detail="User address required for unstaking"
                 )
 
+            # Get StakePool ID
+            stake_pool_id = sui_service.get_stake_pool_id()
+            if not stake_pool_id:
+                logger.warning("StakePool not configured")
+                return ChatResponse(
+                    intent=intent,
+                    dry_run=None,
+                    ready_to_execute=False,
+                    message="Staking pool not configured. Please set STAKE_POOL_OBJECT_ID in the backend environment."
+                )
+
             parsed_data = intent.parsed_data
             token_type = TokenType(parsed_data.get("token", "SUI"))
-
-            # Get current stake
-            stake_info = await sui_service.get_user_stake(
-                user_address=request.user_address,
-                token_type=token_type
-            )
 
             # Get balance for gas estimation
             balance_info = await sui_service.get_balance(
@@ -221,44 +244,29 @@ async def chat_endpoint(request: ChatRequest):
             decimals = 9  # SUI has 9 decimals
             amount_in_smallest = str(int(float(amount_str) * (10 ** decimals)))
 
-            # Check if user has enough staked
-            if int(amount_in_smallest) > int(stake_info.staked_amount):
-                logger.warning(f"Insufficient stake: requested {amount_in_smallest}, has {stake_info.staked_amount}")
-                return ChatResponse(
-                    intent=intent,
-                    dry_run=None,
-                    ready_to_execute=False,
-                    message=f"Insufficient staked amount. You have {stake_info.staked_amount_formatted} {token_type.value} staked, but trying to unstake {amount_str} {token_type.value}."
-                )
-
-            # Estimate gas
-            estimated_gas = await sui_service.estimate_gas_fee(b"")
-
-            # Generate dry-run summary
-            dry_run = await openai_service.generate_dry_run_summary(
-                action="unstake_token",
-                parsed_data={
-                    "recipient": request.user_address,
-                    "amount": amount_in_smallest,
-                    "token": token_type.value
-                },
-                sender_balance=balance_info.balance,
-                estimated_gas=estimated_gas
+            # Build unstake transaction metadata
+            tx_result = sui_service.build_unstake_tx(
+                sender=request.user_address,
+                amount=amount_in_smallest,
+                stake_pool_id=stake_pool_id
             )
 
-            # Build transaction_data for execute endpoint
+            # Build transaction_data for frontend
             transaction_data = {
-                "action": "unstake_token",
-                "amount": amount_in_smallest,
+                "action": "unstake",
+                "transaction_type": tx_result.get("transaction_type"),
+                "target": tx_result.get("target"),
+                "stake_pool_id": stake_pool_id,
+                "amount": int(amount_in_smallest),
                 "token": token_type.value
             }
             logger.info(f"Unstake transaction data prepared: {transaction_data}")
 
             return ChatResponse(
                 intent=intent,
-                dry_run=dry_run,
+                dry_run=None,
                 ready_to_execute=True,
-                message=f"Ready to unstake {amount_str} {token_type.value}. Estimated gas: ~{dry_run.estimated_gas_fee} SUI.",
+                message=f"Ready to unstake {amount_str} SUI. Sign with your wallet to confirm.",
                 transaction_data=transaction_data
             )
 
@@ -280,28 +288,45 @@ async def chat_endpoint(request: ChatRequest):
             # Step 2.1: Resolve contact if needed
             if is_contact_name:
                 logger.info(f"Resolving contact name: {recipient}")
-                
-                # Check if user has an on-chain address book
-                address_book = sui_service.get_user_address_book(request.user_address)
-                if not address_book:
-                    logger.warning(f"No address book found for user {request.user_address}")
+
+                # Try to resolve contact from on-chain address book
+                resolved_address = sui_service.resolve_contact_address(
+                    user_address=request.user_address,
+                    contact_key=recipient
+                )
+
+                if resolved_address and resolved_address.startswith("0x"):
+                    logger.info(f"Contact '{recipient}' resolved to: {resolved_address}")
+                    recipient = resolved_address  # Use resolved address for transfer
+                elif resolved_address == "NEEDS_RESAVE":
+                    # Contact exists but stored in old encrypted format
+                    logger.warning(f"Contact '{recipient}' needs to be re-saved")
                     return ChatResponse(
                         intent=intent,
                         dry_run=None,
                         ready_to_execute=False,
-                        message=f"Contact '{recipient}' not found. You don't have an address book yet. Say 'Create my address book' to get started, then save contacts with 'Save [name] [address] as [key]'."
+                        message=f"Contact '{recipient}' exists but was saved in an old format. Please re-save it: 'Save [name] [0x address] as {recipient}'"
                     )
-
-                # TODO: Read contacts from on-chain VecMap
-                # For now, inform user that contact resolution from on-chain is coming
-                # Users can still use direct wallet addresses
-                logger.info(f"Address book found, but on-chain contact resolution is not yet implemented")
-                return ChatResponse(
-                    intent=intent,
-                    dry_run=None,
-                    ready_to_execute=False,
-                    message=f"Contact name resolution is coming soon! For now, please use the full wallet address. You can check your saved contacts in Sui Explorer using your address book ID: {address_book['object_id'][:20]}..."
-                )
+                else:
+                    # Check if user has an address book at all
+                    address_book = sui_service.get_user_address_book(request.user_address)
+                    if not address_book:
+                        logger.warning(f"No address book found for user {request.user_address}")
+                        return ChatResponse(
+                            intent=intent,
+                            dry_run=None,
+                            ready_to_execute=False,
+                            message=f"Contact '{recipient}' not found. You don't have an address book yet. Say 'Create my address book' to get started, then save contacts with 'Save [name] [address] as [nickname]'."
+                        )
+                    else:
+                        # Address book exists but contact not found
+                        logger.warning(f"Contact '{recipient}' not found in address book")
+                        return ChatResponse(
+                            intent=intent,
+                            dry_run=None,
+                            ready_to_execute=False,
+                            message=f"Contact '{recipient}' not found in your address book. Save it first with: 'Save [name] [0x address] as {recipient}'"
+                        )
 
             # Step 2.2: Get balance and generate dry-run
             token_type = TokenType(parsed_data.get("token", "SUI"))
@@ -424,28 +449,51 @@ async def chat_endpoint(request: ChatRequest):
                     message="You don't have an address book yet. Say 'Create my address book' first!"
                 )
 
-            # Encrypt contact data
-            import time
-            encrypted_data = await seal_service.encrypt_contact(
-                user_address=request.user_address,
-                name=contact_name,
-                contact_address=contact_address,
-                notes=notes
-            )
+            # Check if contact already exists
+            contacts_data = sui_service.get_address_book_contacts(address_book["object_id"])
+            existing_contacts = contacts_data.get("contacts", {}) if contacts_data else {}
+            contact_exists = contact_key in existing_contacts
 
+            # Store contact data as JSON (MVP - not encrypted for easy resolution)
+            # In production, this would use Seal encryption
+            import time
+            import json
             import os
+
+            contact_json = json.dumps({
+                "name": contact_name,
+                "address": contact_address,
+                "notes": notes
+            })
+            # Convert JSON string to bytes
+            contact_data = contact_json.encode('utf-8')
+
             nonce = os.urandom(16)
             timestamp = int(time.time())
 
-            # Build add contact transaction metadata
-            tx_result = sui_service.build_add_contact_tx(
-                sender=request.user_address,
-                address_book_id=address_book["object_id"],
-                contact_key=contact_key,
-                encrypted_data=encrypted_data,
-                nonce=nonce,
-                timestamp=timestamp
-            )
+            # Build add or update contact transaction
+            if contact_exists:
+                logger.info(f"Contact '{contact_key}' exists, building update transaction")
+                tx_result = sui_service.build_update_contact_tx(
+                    sender=request.user_address,
+                    address_book_id=address_book["object_id"],
+                    contact_key=contact_key,
+                    encrypted_data=contact_data,
+                    nonce=nonce,
+                    timestamp=timestamp
+                )
+                action_desc = "update"
+            else:
+                logger.info(f"Contact '{contact_key}' is new, building add transaction")
+                tx_result = sui_service.build_add_contact_tx(
+                    sender=request.user_address,
+                    address_book_id=address_book["object_id"],
+                    contact_key=contact_key,
+                    encrypted_data=contact_data,
+                    nonce=nonce,
+                    timestamp=timestamp
+                )
+                action_desc = "save"
 
             transaction_data = {
                 "action": "save_contact",
@@ -461,7 +509,7 @@ async def chat_endpoint(request: ChatRequest):
                 intent=intent,
                 dry_run=None,
                 ready_to_execute=True,
-                message=f"Ready to save '{contact_name}' as '{contact_key}' to your address book. This will be encrypted and stored on-chain. Estimated gas: ~0.02 SUI.",
+                message=f"Ready to {action_desc} '{contact_name}' as '{contact_key}' in your address book. Estimated gas: ~0.02 SUI.",
                 transaction_data=transaction_data
             )
 
@@ -484,13 +532,39 @@ async def chat_endpoint(request: ChatRequest):
                     message="You don't have an address book yet. Say 'Create my address book' to get started!"
                 )
 
-            # For now, we just confirm the address book exists
-            # Full contact listing would require reading the VecMap from on-chain
+            # Read contacts from on-chain
+            contacts_data = sui_service.get_address_book_contacts(address_book["object_id"])
+
+            if not contacts_data or not contacts_data.get("contacts"):
+                return ChatResponse(
+                    intent=intent,
+                    dry_run=None,
+                    ready_to_execute=False,
+                    message="Your address book is empty. Save contacts using: 'Save [name] [0x address] as [nickname]'"
+                )
+
+            # Format contacts list
+            import json
+            contacts_list = []
+            for key, contact in contacts_data["contacts"].items():
+                try:
+                    # Decode contact data
+                    encrypted_data = contact.get("encrypted_data", [])
+                    if isinstance(encrypted_data, list):
+                        contact_bytes = bytes(encrypted_data)
+                        contact_info = json.loads(contact_bytes.decode('utf-8'))
+                        name = contact_info.get("name", key)
+                        address = contact_info.get("address", "")[:12] + "..." + contact_info.get("address", "")[-8:]
+                        contacts_list.append(f"• {key}: {name} ({address})")
+                except Exception:
+                    contacts_list.append(f"• {key}: (encrypted)")
+
+            contacts_text = "\n".join(contacts_list)
             return ChatResponse(
                 intent=intent,
                 dry_run=None,
                 ready_to_execute=False,
-                message=f"Your address book (ID: {address_book['object_id'][:16]}...) is ready. Contact listing from on-chain data is coming soon! For now, you can save contacts using 'Save [name] [address] as [key]'."
+                message=f"**Your Contacts ({len(contacts_list)}):**\n\n{contacts_text}\n\nUse a nickname to send, e.g., 'Send 0.1 SUI to {list(contacts_data['contacts'].keys())[0] if contacts_data['contacts'] else 'alice'}'"
             )
 
         else:

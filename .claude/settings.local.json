@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(tree:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python verify_imports.py:*)",
+      "Bash(pip install:*)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(curl:*)",
+      "Bash(sui move build:*)",
+      "Bash(python main.py:*)",
+      "Bash(timeout:*)",
+      "Bash(ping:*)",
+      "Bash(python -m json.tool:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.wal.app)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

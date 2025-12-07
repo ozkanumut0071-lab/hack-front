@@ -20,10 +20,11 @@ class Settings(BaseSettings):
     SUI_NETWORK: Literal["mainnet", "testnet", "devnet", "localnet"] = "testnet"
     SUI_RPC_URL: str = "https://fullnode.testnet.sui.io:443"
 
-    # Stake Contract Configuration
-    STAKE_PACKAGE_ID: str = "0x0"  # Replace with deployed package ID
+    # Stake Contract Configuration (uses same package as address_book)
+    STAKE_PACKAGE_ID: str = "0x8e385abb2ccefc0aed625567e72c8005f06ae3a97d534a25cb8e5dd2b62f6f9c"
     STAKE_MODULE: str = "stake"
-    STAKE_POOL_OBJECT_ID: str = "0x0"  # Replace with shared StakePool object ID
+    # StakePool shared object (created during module init)
+    STAKE_POOL_OBJECT_ID: str = "0x3115704216024fdfb16b823bb5b4f6a7113747ef1c28435fb14e44b5ad19ebd9"
 
     # Address Book Contract Configuration (On-Chain Contact Storage)
     ADDRESS_BOOK_PACKAGE_ID: str = "0x8e385abb2ccefc0aed625567e72c8005f06ae3a97d534a25cb8e5dd2b62f6f9c"

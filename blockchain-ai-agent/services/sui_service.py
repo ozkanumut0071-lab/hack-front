@@ -373,76 +373,223 @@ class SuiService:
             token=TokenType.SUI
         )
 
+    def get_stake_pool_id(self) -> Optional[str]:
+        """
+        Discover the StakePool shared object ID by querying the chain.
+        The StakePool is created during module init and is a shared object.
+        
+        Returns:
+            StakePool object ID or None if not found
+        """
+        try:
+            # If configured in settings, use that
+            if settings.STAKE_POOL_OBJECT_ID and settings.STAKE_POOL_OBJECT_ID != "":
+                return settings.STAKE_POOL_OBJECT_ID
+            
+            logger.info("Discovering StakePool object...")
+            
+            import httpx
+            
+            # Query for package initialization transaction to find created objects
+            # The StakePool is a shared object created by the init function
+            stake_pool_type = f"{settings.STAKE_PACKAGE_ID}::{settings.STAKE_MODULE}::StakePool"
+            
+            # Use suix_queryEvents to find the package publish transaction
+            # Then get the created objects from it
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "suix_queryEvents",
+                "params": [
+                    {
+                        "MoveModule": {
+                            "package": settings.STAKE_PACKAGE_ID,
+                            "module": settings.STAKE_MODULE
+                        }
+                    },
+                    None,
+                    1,
+                    False
+                ]
+            }
+            
+            response = httpx.post(settings.SUI_RPC_URL, json=payload, timeout=10.0)
+            result = response.json()
+            
+            # If we can find an event, we can trace back to the StakePool
+            # For now, return None and require manual configuration
+            logger.info(f"StakePool discovery result: {result}")
+            
+            # TODO: Implement full discovery logic
+            # For now, return None - user needs to configure STAKE_POOL_OBJECT_ID
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error discovering StakePool: {str(e)}", exc_info=True)
+            return None
+
+    def build_stake_tx(
+        self,
+        sender: str,
+        amount: str,
+        stake_pool_id: str,
+        token_type: TokenType = TokenType.SUI
+    ) -> Dict[str, Any]:
+        """
+        Build transaction metadata to stake SUI tokens.
+        Returns metadata for frontend to build and sign the transaction.
+
+        Args:
+            sender: Sender's wallet address
+            amount: Amount in smallest units (MIST for SUI)
+            stake_pool_id: The StakePool shared object ID
+            token_type: Token type (currently only SUI is supported)
+
+        Returns:
+            Dictionary with transaction metadata for frontend signing
+        """
+        try:
+            logger.info(f"Building stake transaction: {amount} MIST for {sender}")
+
+            target = f"{settings.STAKE_PACKAGE_ID}::{settings.STAKE_MODULE}::stake"
+
+            logger.info(f"Stake transaction metadata built for target: {target}")
+
+            return {
+                "success": True,
+                "transaction_type": "stake",
+                "target": target,
+                "stake_pool_id": stake_pool_id,
+                "amount": int(amount),
+                "sender": sender,
+                "action": "stake",
+                "message": f"Transaction ready. Sign with your wallet to stake {int(amount)/1_000_000_000:.4f} SUI."
+            }
+
+        except Exception as e:
+            logger.error(f"Error building stake transaction: {str(e)}", exc_info=True)
+            raise ValueError(f"Error building stake transaction: {str(e)}")
+
+    def build_unstake_tx(
+        self,
+        sender: str,
+        amount: str,
+        stake_pool_id: str,
+        token_type: TokenType = TokenType.SUI
+    ) -> Dict[str, Any]:
+        """
+        Build transaction metadata to unstake SUI tokens.
+        Returns metadata for frontend to build and sign the transaction.
+
+        Args:
+            sender: Sender's wallet address
+            amount: Amount in smallest units (MIST for SUI)
+            stake_pool_id: The StakePool shared object ID
+            token_type: Token type (currently only SUI is supported)
+
+        Returns:
+            Dictionary with transaction metadata for frontend signing
+        """
+        try:
+            logger.info(f"Building unstake transaction: {amount} MIST for {sender}")
+
+            target = f"{settings.STAKE_PACKAGE_ID}::{settings.STAKE_MODULE}::unstake"
+
+            logger.info(f"Unstake transaction metadata built for target: {target}")
+
+            return {
+                "success": True,
+                "transaction_type": "unstake",
+                "target": target,
+                "stake_pool_id": stake_pool_id,
+                "amount": int(amount),
+                "sender": sender,
+                "action": "unstake",
+                "message": f"Transaction ready. Sign with your wallet to unstake {int(amount)/1_000_000_000:.4f} SUI."
+            }
+
+        except Exception as e:
+            logger.error(f"Error building unstake transaction: {str(e)}", exc_info=True)
+            raise ValueError(f"Error building unstake transaction: {str(e)}")
+
+    def get_user_stake(self, user_address: str, stake_pool_id: str) -> Dict[str, Any]:
+        """
+        Get user's staked amount from the StakePool using devInspect.
+        
+        Args:
+            user_address: User's wallet address
+            stake_pool_id: The StakePool shared object ID
+            
+        Returns:
+            Dictionary with user's stake info
+        """
+        try:
+            logger.info(f"Getting stake info for {user_address} from pool {stake_pool_id}")
+            
+            import httpx
+            
+            # First, get the StakePool object to check if user has stake
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sui_getObject",
+                "params": [
+                    stake_pool_id,
+                    {
+                        "showType": True,
+                        "showContent": True
+                    }
+                ]
+            }
+            
+            response = httpx.post(settings.SUI_RPC_URL, json=payload, timeout=10.0)
+            result = response.json()
+            
+            if "error" in result:
+                logger.error(f"RPC error: {result['error']}")
+                return {"staked": 0, "staked_formatted": "0.0000"}
+            
+            obj_data = result.get("result", {}).get("data", {})
+            content = obj_data.get("content", {})
+            fields = content.get("fields", {})
+            
+            # Get total balance of the pool
+            balance = fields.get("balance", 0)
+            total_staked = int(balance) if balance else 0
+            
+            # Parse the stakes table to find user's stake
+            stakes = fields.get("stakes", {})
+            user_stake = 0
+            
+            # Stakes is a Table - we'd need to query dynamic fields
+            # For MVP, return the pool info
+            logger.info(f"StakePool total balance: {total_staked}")
+            
+            return {
+                "pool_id": stake_pool_id,
+                "total_staked": total_staked,
+                "total_staked_formatted": f"{total_staked / 1_000_000_000:.4f}",
+                "user_staked": 0,  # TODO: Query user's stake from Table
+                "user_staked_formatted": "0.0000"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting stake info: {str(e)}", exc_info=True)
+            return {"staked": 0, "staked_formatted": "0.0000", "error": str(e)}
+
+    # Keep old async functions for backwards compatibility but mark deprecated
     async def build_stake_transaction(
         self,
         sender: str,
         amount: str,
         token_type: TokenType = TokenType.SUI
     ) -> Dict[str, Any]:
-        """
-        Build a transaction to stake SUI tokens
-
-        Args:
-            sender: Sender's wallet address
-            amount: Amount in smallest units (MIST for SUI)
-            token_type: Token type (currently only SUI is supported)
-
-        Returns:
-            Dictionary with transaction data ready for signing
-
-        Raises:
-            ValueError: If transaction building fails or stake contract not configured
-        """
-        logger.info(f"Building stake transaction: {amount} MIST for {sender}")
-        try:
-            if settings.STAKE_PACKAGE_ID == "0x0":
-                logger.warning("Stake contract not configured")
-                raise ValueError("Stake contract not configured. Please deploy and configure STAKE_PACKAGE_ID in .env")
-
-            sender_address = SuiAddress(sender)
-            amount_int = int(amount)
-            logger.debug(f"Amount to stake: {amount_int} MIST")
-
-            # Create transaction builder
-            logger.debug("Creating transaction builder...")
-            txn = SyncTransaction(
-                client=self.client,
-                initial_sender=sender_address
-            )
-
-            # Split coins for exact amount to stake
-            logger.debug("Splitting SUI coins for staking...")
-            split_coin = txn.split_coin(
-                coin=txn.gas,
-                amounts=[amount_int]
-            )
-
-            # Call stake function
-            logger.debug("Adding stake move call...")
-            txn.move_call(
-                target=f"{settings.STAKE_PACKAGE_ID}::{settings.STAKE_MODULE}::stake",
-                arguments=[
-                    ObjectID(settings.STAKE_POOL_OBJECT_ID),
-                    split_coin  # The coin to stake
-                ]
-            )
-
-            # Serialize transaction
-            logger.info("Serializing stake transaction...")
-            tx_bytes = txn.serialize()
-            logger.info(f"Stake transaction built successfully, bytes length: {len(tx_bytes)}")
-
-            return {
-                "transaction_bytes": tx_bytes,
-                "sender": sender,
-                "amount": amount,
-                "token_type": token_type.value,
-                "action": "stake"
-            }
-
-        except Exception as e:
-            logger.error(f"Error building stake transaction: {str(e)}", exc_info=True)
-            raise ValueError(f"Error building stake transaction: {str(e)}")
+        """DEPRECATED: Use build_stake_tx instead"""
+        logger.warning("build_stake_transaction is deprecated, use build_stake_tx")
+        stake_pool_id = self.get_stake_pool_id()
+        if not stake_pool_id:
+            raise ValueError("StakePool not configured. Set STAKE_POOL_OBJECT_ID in .env")
+        return self.build_stake_tx(sender, amount, stake_pool_id, token_type)
 
     async def build_unstake_transaction(
         self,
@@ -450,64 +597,12 @@ class SuiService:
         amount: str,
         token_type: TokenType = TokenType.SUI
     ) -> Dict[str, Any]:
-        """
-        Build a transaction to unstake SUI tokens
-
-        Args:
-            sender: Sender's wallet address
-            amount: Amount in smallest units (MIST for SUI)
-            token_type: Token type (currently only SUI is supported)
-
-        Returns:
-            Dictionary with transaction data ready for signing
-
-        Raises:
-            ValueError: If transaction building fails or stake contract not configured
-        """
-        logger.info(f"Building unstake transaction: {amount} MIST for {sender}")
-        try:
-            if settings.STAKE_PACKAGE_ID == "0x0":
-                logger.warning("Stake contract not configured")
-                raise ValueError("Stake contract not configured. Please deploy and configure STAKE_PACKAGE_ID in .env")
-
-            sender_address = SuiAddress(sender)
-            amount_int = int(amount)
-            logger.debug(f"Amount to unstake: {amount_int} MIST")
-
-            # Create transaction builder
-            logger.debug("Creating transaction builder...")
-            txn = SyncTransaction(
-                client=self.client,
-                initial_sender=sender_address
-            )
-
-            # Call unstake function
-            logger.debug("Adding unstake move call...")
-            txn.move_call(
-                target=f"{settings.STAKE_PACKAGE_ID}::{settings.STAKE_MODULE}::unstake",
-                arguments=[
-                    ObjectID(settings.STAKE_POOL_OBJECT_ID),
-                    amount_int  # Amount to unstake as u64
-                ],
-                type_arguments=[]
-            )
-
-            # Serialize transaction
-            logger.info("Serializing unstake transaction...")
-            tx_bytes = txn.serialize()
-            logger.info(f"Unstake transaction built successfully, bytes length: {len(tx_bytes)}")
-
-            return {
-                "transaction_bytes": tx_bytes,
-                "sender": sender,
-                "amount": amount,
-                "token_type": token_type.value,
-                "action": "unstake"
-            }
-
-        except Exception as e:
-            logger.error(f"Error building unstake transaction: {str(e)}", exc_info=True)
-            raise ValueError(f"Error building unstake transaction: {str(e)}")
+        """DEPRECATED: Use build_unstake_tx instead"""
+        logger.warning("build_unstake_transaction is deprecated, use build_unstake_tx")
+        stake_pool_id = self.get_stake_pool_id()
+        if not stake_pool_id:
+            raise ValueError("StakePool not configured. Set STAKE_POOL_OBJECT_ID in .env")
+        return self.build_unstake_tx(sender, amount, stake_pool_id, token_type)
 
     # =========================================================================
     # Address Book Operations (On-Chain Contact Storage)
@@ -609,6 +704,62 @@ class SuiService:
             logger.error(f"Error building add_contact transaction: {str(e)}", exc_info=True)
             raise ValueError(f"Error building add_contact transaction: {str(e)}")
 
+    def build_update_contact_tx(
+        self,
+        sender: str,
+        address_book_id: str,
+        contact_key: str,
+        encrypted_data: bytes,
+        nonce: bytes,
+        timestamp: int
+    ) -> Dict[str, Any]:
+        """
+        Build a transaction to update an existing contact in the address book
+
+        Args:
+            sender: User's wallet address
+            address_book_id: ID of the user's AddressBook object
+            contact_key: Plain text key for the contact (e.g., "alice", "mom")
+            encrypted_data: Contact data (JSON bytes for MVP)
+            nonce: Nonce/IV
+            timestamp: Current timestamp (Unix epoch)
+
+        Returns:
+            Dictionary with transaction metadata for frontend signing
+        """
+        try:
+            logger.info(f"Building update_contact transaction for {sender}, key: {contact_key}")
+
+            target = f"{settings.ADDRESS_BOOK_PACKAGE_ID}::{settings.ADDRESS_BOOK_MODULE}::update_contact"
+
+            # Convert bytes to hex strings for JSON transport
+            encrypted_data_hex = encrypted_data.hex() if isinstance(encrypted_data, bytes) else encrypted_data
+            nonce_hex = nonce.hex() if isinstance(nonce, bytes) else nonce
+
+            logger.info(f"Transaction metadata built for target: {target}")
+
+            return {
+                "success": True,
+                "transaction_type": "move_call",
+                "target": target,
+                "arguments": [
+                    {"type": "object", "value": address_book_id},
+                    {"type": "string", "value": contact_key},
+                    {"type": "vector_u8", "value": encrypted_data_hex},
+                    {"type": "vector_u8", "value": nonce_hex},
+                    {"type": "u64", "value": timestamp}
+                ],
+                "type_arguments": [],
+                "sender": sender,
+                "contact_key": contact_key,
+                "action": "update_contact",
+                "message": f"Transaction ready. Sign with your wallet to update contact '{contact_key}'."
+            }
+
+        except Exception as e:
+            logger.error(f"Error building update_contact transaction: {str(e)}", exc_info=True)
+            raise ValueError(f"Error building update_contact transaction: {str(e)}")
+
     def get_user_address_book(self, user_address: str) -> Optional[Dict[str, Any]]:
         """
         Find the user's AddressBook object on-chain
@@ -677,6 +828,158 @@ class SuiService:
 
         except Exception as e:
             logger.error(f"Error looking up AddressBook: {str(e)}", exc_info=True)
+            return None
+
+    def get_address_book_contacts(self, address_book_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Read all contacts from an AddressBook object on-chain.
+
+        Args:
+            address_book_id: The AddressBook object ID
+
+        Returns:
+            Dictionary with contacts data or None if not found
+        """
+        try:
+            logger.info(f"Reading AddressBook contacts: {address_book_id}")
+
+            import httpx
+
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sui_getObject",
+                "params": [
+                    address_book_id,
+                    {
+                        "showType": True,
+                        "showContent": True
+                    }
+                ]
+            }
+
+            response = httpx.post(settings.SUI_RPC_URL, json=payload, timeout=10.0)
+            result = response.json()
+
+            if "error" in result:
+                logger.error(f"RPC error: {result['error']}")
+                return None
+
+            obj_data = result.get("result", {}).get("data", {})
+            content = obj_data.get("content", {})
+
+            if content.get("dataType") != "moveObject":
+                logger.error(f"Unexpected data type: {content.get('dataType')}")
+                return None
+
+            fields = content.get("fields", {})
+            contacts_map = fields.get("contacts", {})
+
+            # VecMap is stored as an array of {key, value} pairs
+            contacts = {}
+            if isinstance(contacts_map, dict) and "fields" in contacts_map:
+                # Handle VecMap structure: {type, fields: {contents: [{fields: {key, value}}]}}
+                contents = contacts_map.get("fields", {}).get("contents", [])
+                for entry in contents:
+                    entry_fields = entry.get("fields", {})
+                    contact_key = entry_fields.get("key", "")
+                    value_fields = entry_fields.get("value", {}).get("fields", {})
+
+                    contacts[contact_key] = {
+                        "encrypted_data": value_fields.get("encrypted_data", []),
+                        "nonce": value_fields.get("nonce", []),
+                        "created_at": value_fields.get("created_at", 0),
+                        "updated_at": value_fields.get("updated_at", 0)
+                    }
+
+            logger.info(f"Found {len(contacts)} contacts in AddressBook")
+
+            return {
+                "object_id": address_book_id,
+                "owner": fields.get("owner", ""),
+                "contact_count": fields.get("contact_count", 0),
+                "contacts": contacts
+            }
+
+        except Exception as e:
+            logger.error(f"Error reading AddressBook contacts: {str(e)}", exc_info=True)
+            return None
+
+    def resolve_contact_address(self, user_address: str, contact_key: str) -> Optional[str]:
+        """
+        Resolve a contact name to a wallet address.
+
+        Args:
+            user_address: User's wallet address
+            contact_key: Contact key (e.g., "alice", "mom")
+
+        Returns:
+            Wallet address if found and decodable, None otherwise
+        """
+        try:
+            logger.info(f"Resolving contact '{contact_key}' for user {user_address}")
+
+            # Get user's address book
+            address_book = self.get_user_address_book(user_address)
+            if not address_book:
+                logger.info("No address book found")
+                return None
+
+            # Get contacts from address book
+            contacts_data = self.get_address_book_contacts(address_book["object_id"])
+            if not contacts_data:
+                logger.info("Could not read contacts from address book")
+                return None
+
+            contacts = contacts_data.get("contacts", {})
+            
+            # Case-insensitive lookup - try exact match first, then case-insensitive
+            contact_key_normalized = contact_key.lower().replace(" ", "_")
+            
+            # Find matching contact key (case-insensitive)
+            matched_key = None
+            for key in contacts.keys():
+                if key.lower() == contact_key_normalized:
+                    matched_key = key
+                    break
+            
+            if not matched_key:
+                logger.info(f"Contact '{contact_key}' not found. Available: {list(contacts.keys())}")
+                return None
+
+            contact = contacts[matched_key]
+            encrypted_data = contact.get("encrypted_data", [])
+
+            # Try to decode contact data
+            try:
+                if isinstance(encrypted_data, list) and len(encrypted_data) > 0:
+                    # Convert byte array to string
+                    address_bytes = bytes(encrypted_data)
+                    
+                    # Try to parse as JSON (new save format)
+                    import json
+                    try:
+                        contact_info = json.loads(address_bytes.decode('utf-8'))
+                        resolved_address = contact_info.get("address", "")
+                        if resolved_address and resolved_address.startswith("0x"):
+                            logger.info(f"Resolved contact '{contact_key}' to address: {resolved_address[:20]}...")
+                            return resolved_address
+                    except json.JSONDecodeError:
+                        # Not JSON - might be old encrypted format or plain address
+                        decoded_str = address_bytes.decode('utf-8', errors='ignore').strip()
+                        if decoded_str.startswith("0x") and len(decoded_str) >= 66:
+                            logger.info(f"Resolved contact '{contact_key}' as plain address: {decoded_str[:20]}...")
+                            return decoded_str
+                        
+            except Exception as decode_error:
+                logger.warning(f"Could not decode contact data for '{matched_key}': {decode_error}")
+            
+            # Contact exists but data cannot be decoded
+            logger.info(f"Contact '{matched_key}' exists but data format is incompatible. Needs re-save.")
+            return "NEEDS_RESAVE"  # Special marker
+
+        except Exception as e:
+            logger.error(f"Error resolving contact: {str(e)}", exc_info=True)
             return None
 
 

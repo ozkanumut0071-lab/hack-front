@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@mysten/sui": "^1.45.2",
+    "@noble/ed25519": "^3.0.0",
+    "dotenv": "^17.2.3",
+    "sui": "^1.0.0"
+  }
+}

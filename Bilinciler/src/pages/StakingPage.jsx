@@ -166,7 +166,7 @@ function StakingPage({ walletAddress, suiBalance, signAndExecute, isConnected })
         <div className="page">
             <div className="page-header">
                 <h2>SUI Staking Pool</h2>
-                <p>Stake your SUI tokens to earn rewards. Powered by the Bilinciler staking contract.</p>
+                <p>Stake your SUI tokens to earn rewards. By using staking contract.</p>
             </div>
 
             {/* Status Message */}
