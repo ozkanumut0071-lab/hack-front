@@ -5,6 +5,7 @@ import { useCurrentAccount, useSuiClientQuery, useSignAndExecuteTransaction } fr
 import { WalletConnectModal } from "./components/WalletConnectModal";
 import AgentPage from "./pages/AgentPage";
 import StakingPage from "./pages/StakingPage";
+import HistoryPage from "./pages/HistoryPage";
 
 // ---- COINMARKETCAP HELPERS ----
 
@@ -616,7 +617,7 @@ function App() {
                             isConnected={wallet.connected || !!enokiAddress}
                         />
                     )}
-                    {activePage === PAGES.HISTORY && <HistoryPage history={history} />}
+                    {activePage === PAGES.HISTORY && <HistoryPage walletAddress={wallet.address || enokiAddress || ""} />}
                     {activePage === PAGES.WALLET && (
                         <WalletPage wallet={wallet} coins={coins} />
                     )}
@@ -1096,72 +1097,8 @@ function CoinsPage({ coins }) {
 
 
 
-// ---- PAGE: HISTORY ----
+// ---- PAGE: HISTORY (Moved to src/pages/HistoryPage.jsx) ----
 
-function HistoryPage({ history }) {
-    return (
-        <div className="page">
-            <div className="page-header">
-                <h2>Transaction history</h2>
-                <p>
-                    All activity executed by you or your AI agent. Read-only, pulled from
-                    Sui / explorer / your backend.
-                </p>
-            </div>
-
-            <div className="history-layout">
-                <div className="page-card history-card">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>Tx ID</th>
-                                <th>Type</th>
-                                <th>Asset</th>
-                                <th>Amount</th>
-                                <th>Status</th>
-                                <th>Time</th>
-                                <th>Prompt</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {history.map((tx) => (
-                                <tr key={tx.id}>
-                                    <td className="mono">{tx.id}</td>
-                                    <td>{tx.type}</td>
-                                    <td>{tx.asset}</td>
-                                    <td>{tx.amount}</td>
-                                    <td>
-                                        <span
-                                            className={
-                                                "badge " +
-                                                (tx.status === "Success"
-                                                    ? "badge-success"
-                                                    : tx.status === "Pending"
-                                                        ? "badge-warning"
-                                                        : "badge-danger")
-                                            }
-                                        >
-                                            {tx.status}
-                                        </span>
-                                    </td>
-                                    <td className="mono">{tx.time}</td>
-                                    <td className="history-prompt">
-                                        {tx.promptSummary}
-                                        {tx.viaAgent && (
-                                            <span className="badge badge-outline">
-                                                via AI Agent
-                                            </span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-}
 
 // ---- PAGE: WALLET ----
 
@@ -1187,7 +1124,10 @@ function WalletPage({ wallet, coins }) {
                     </p>
                 </div>
                 {wallet.connected && (
-                    <div className="wallet-balance-header" style={{ marginRight: '15px' }}>
+                    <div className="wallet-balance-header" style={{
+
+                        marginRight: '15px'
+                    }}>
                         {wallet.suiBalance.toFixed(2)} SUI
                     </div>
                 )}
