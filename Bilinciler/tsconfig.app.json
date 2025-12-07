@@ -34,6 +34,7 @@
   "exclude": [
     "node_modules",
     "docs",
-    "examples"
+    "examples",
+    "move"
   ]
 }
