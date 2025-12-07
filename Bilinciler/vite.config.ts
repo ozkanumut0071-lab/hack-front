@@ -18,7 +18,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
       '/backend': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_URL || 'https://hack-back-w2jw.onrender.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/backend/, ''),
       },
