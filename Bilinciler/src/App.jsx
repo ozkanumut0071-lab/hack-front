@@ -1124,10 +1124,7 @@ function WalletPage({ wallet, coins }) {
                     </p>
                 </div>
                 {wallet.connected && (
-                    <div className="wallet-balance-header" style={{
-
-                        marginRight: '15px'
-                    }}>
+                    <div className="wallet-balance-header" style={{ marginRight: '15px' }}>
                         {wallet.suiBalance.toFixed(2)} SUI
                     </div>
                 )}
@@ -1144,9 +1141,6 @@ function WalletPage({ wallet, coins }) {
                                         {copied ? 'Copied!' : 'Copy'}
                                     </button>
                                 </div>
-                                <p className="helper-text" style={{ marginTop: '12px' }}>
-                                    You can fetch this from Sui RPC / explorer or Slash wallet SDK.
-                                </p>
                             </>
                         ) : (
                             <p className="empty-text">
@@ -1156,55 +1150,38 @@ function WalletPage({ wallet, coins }) {
                     </div>
                 </div>
 
-                <div className="page-card wallet-card">
-                    <h3>Token balances (mock)</h3>
-                    <div className="wallet-content-scroll">
-                        <table className="table">
-                            <thead>
-                                <tr>
-                                    <th>Asset</th>
-                                    <th>Est. balance</th>
-                                    <th>Value (approx)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {coins.map((coin) => (
-                                    <tr key={coin.symbol}>
+                {wallet.suiBalance > 0 && (
+                    <div className="page-card wallet-card">
+                        <h3>Token balances</h3>
+                        <div className="wallet-content-scroll">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th>Asset</th>
+                                        <th>Balance</th>
+                                        <th>Value (approx)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
                                         <td>
                                             <div className="table-asset">
-                                                {coin.logo ? (
-                                                    <img
-                                                        src={coin.logo}
-                                                        alt={coin.name}
-                                                        className="coin-logo-img"
-                                                        onError={(e) => {
-                                                            e.target.style.display = "none";
-                                                            e.target.nextSibling.style.display = "flex";
-                                                        }}
-                                                    />
-                                                ) : null}
-                                                <div
-                                                    className="coin-avatar small"
-                                                    style={{ display: coin.logo ? "none" : "flex" }}
-                                                >
-                                                    {coin.symbol[0]}
-                                                </div>
-                                                <span>
-                                                    {coin.name} ({coin.symbol})
-                                                </span>
+                                                <img
+                                                    src="https://s2.coinmarketcap.com/static/img/coins/64x64/20947.png"
+                                                    alt="SUI"
+                                                    className="coin-logo-img"
+                                                />
+                                                <span>Sui (SUI)</span>
                                             </div>
                                         </td>
-                                        <td>—</td>
-                                        <td>${coin.price.toLocaleString()}</td>
+                                        <td>{wallet.suiBalance.toFixed(4)} SUI</td>
+                                        <td>~${(wallet.suiBalance * 1.5).toFixed(2)}</td>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        <p className="helper-text">
-                            Replace this table with real balances from Slash / Sui RPC.
-                        </p>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
 
